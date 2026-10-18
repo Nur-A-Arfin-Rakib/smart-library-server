@@ -57,7 +57,7 @@ export const borrowBook = async (req: AuthRequest, res: Response): Promise<void>
     const studentId = req.user!.id;
     const { bookId } = req.params;
 
-    // Block if any unpaid fine exists
+    // Block if any unpaid fine exists (either explicitly marked unpaid or currently overdue)
     const unpaidFine = await BorrowRecord.findOne({
       student: studentId,
       finePaid: false,
@@ -65,6 +65,20 @@ export const borrowBook = async (req: AuthRequest, res: Response): Promise<void>
     if (unpaidFine) {
       res.status(403).json({
         message: "You have an unpaid fine. Please pay it before borrowing a new book.",
+      });
+      return;
+    }
+
+    const activeBorrows = await BorrowRecord.find({
+      student: studentId,
+      status: { $in: ["borrowed", "overdue"] },
+    });
+    const hasLiveFine = activeBorrows.some(
+      (r) => calculateFine(r.dueDate) > 0 && !r.finePaid
+    );
+    if (hasLiveFine) {
+      res.status(403).json({
+        message: "You have an overdue book with an unpaid fine. Please return or pay before borrowing.",
       });
       return;
     }
@@ -139,7 +153,9 @@ export const getMyBorrows = async (req: AuthRequest, res: Response): Promise<voi
         r.status === "borrowed" || r.status === "overdue"
           ? calculateFine(r.dueDate)
           : r.fine;
-      return { ...r.toObject(), liveFine };
+      // If there is an outstanding live fine, finePaid is false until paid
+      const finePaid = liveFine === 0 ? true : r.finePaid;
+      return { ...r.toObject(), liveFine, finePaid };
     });
 
     res.status(200).json(withLiveFine);
@@ -226,6 +242,12 @@ export const payFine = async (req: AuthRequest, res: Response): Promise<void> =>
       return;
     }
 
+    const liveFine =
+      record.status === "borrowed" || record.status === "overdue"
+        ? calculateFine(record.dueDate)
+        : record.fine;
+
+    record.fine = liveFine;
     record.finePaid = true;
     await record.save();
 

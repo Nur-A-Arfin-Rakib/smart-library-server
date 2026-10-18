@@ -77,7 +77,8 @@ export const toggleWishlist = async (req: AuthRequest, res: Response): Promise<v
 export const getMyWishlist = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const items = await Wishlist.find({ student: req.user!.id }).populate("book");
-    res.status(200).json(items);
+    const validItems = items.filter((item) => item.book != null);
+    res.status(200).json(validItems);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch wishlist", error: (error as Error).message });
   }

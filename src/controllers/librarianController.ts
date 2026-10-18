@@ -11,16 +11,21 @@ import { calculateFine } from "../utils/fine";
 import { sendEmail, returnConfirmationEmail } from "../utils/email";
 
 // @route PATCH /api/librarian/bookings/:id/manual-checkin
-// Used when a student can't scan their own QR code.
+// Used when a student can't scan their own QR code or when librarian scans QR code / enters ID.
 export const manualCheckIn = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    if (!isValidObjectId(req.params.id)) {
-      res.status(400).json({ message: "That doesn't look like a valid booking ID" });
-      return;
+    const term = req.params.id?.trim();
+    let booking = null;
+
+    if (isValidObjectId(term)) {
+      booking = await Booking.findById(term);
     }
-    const booking = await Booking.findById(req.params.id);
     if (!booking) {
-      res.status(404).json({ message: "Booking not found" });
+      booking = await Booking.findOne({ qrToken: term });
+    }
+
+    if (!booking) {
+      res.status(404).json({ message: "Booking not found with that ID or QR token" });
       return;
     }
     if (booking.status !== "booked") {
@@ -30,7 +35,7 @@ export const manualCheckIn = async (req: AuthRequest, res: Response): Promise<vo
     booking.status = "checked-in";
     booking.checkedInAt = new Date();
     await booking.save();
-    res.status(200).json({ message: "Checked in", booking });
+    res.status(200).json({ message: "Checked in successfully", booking });
   } catch (error) {
     res.status(500).json({ message: "Check-in failed", error: (error as Error).message });
   }
@@ -137,3 +142,96 @@ export const getDailySummary = async (_req: AuthRequest, res: Response): Promise
     res.status(500).json({ message: "Failed to build summary", error: (error as Error).message });
   }
 };
+
+// @route GET /api/librarian/borrows?status=&search=
+export const listBorrows = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { status, search } = req.query as { status?: string; search?: string };
+    const query: Record<string, unknown> = {};
+
+    if (status && status !== "all") {
+      query.status = status;
+    }
+
+    const records = await BorrowRecord.find(query)
+      .populate("student", "name email department studentId")
+      .populate("book", "title author isbn shelfLocation")
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    const withLiveFine = records.map((r) => {
+      const liveFine =
+        r.status === "borrowed" || r.status === "overdue"
+          ? calculateFine(r.dueDate)
+          : r.fine;
+      const isPaid = liveFine === 0 ? true : r.finePaid;
+      return { ...r.toObject(), liveFine, finePaid: isPaid };
+    });
+
+    let filtered = withLiveFine;
+    if (search) {
+      const s = search.toLowerCase();
+      filtered = withLiveFine.filter((r: any) => {
+        const studentName = r.student?.name?.toLowerCase() || "";
+        const studentEmail = r.student?.email?.toLowerCase() || "";
+        const bookTitle = r.book?.title?.toLowerCase() || "";
+        const bookIsbn = r.book?.isbn?.toLowerCase() || "";
+        return (
+          studentName.includes(s) ||
+          studentEmail.includes(s) ||
+          bookTitle.includes(s) ||
+          bookIsbn.includes(s) ||
+          r._id.toString().includes(s)
+        );
+      });
+    }
+
+    res.status(200).json(filtered);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch borrows", error: (error as Error).message });
+  }
+};
+
+// @route GET /api/librarian/bookings?status=&search=
+export const listBookings = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { status, search } = req.query as { status?: string; search?: string };
+    const query: Record<string, unknown> = {};
+
+    if (status && status !== "all") {
+      query.status = status;
+    }
+
+    const bookings = await Booking.find(query)
+      .populate("student", "name email department studentId")
+      .populate("seat", "seatNumber")
+      .populate("zone", "name")
+      .sort({ startTime: -1 })
+      .limit(100);
+
+    let filtered = bookings;
+    if (search) {
+      const s = search.toLowerCase();
+      filtered = bookings.filter((b: any) => {
+        const studentName = b.student?.name?.toLowerCase() || "";
+        const studentEmail = b.student?.email?.toLowerCase() || "";
+        const seatNumber = b.seat?.seatNumber?.toLowerCase() || "";
+        const zoneName = b.zone?.name?.toLowerCase() || "";
+        const qr = b.qrToken?.toLowerCase() || "";
+        return (
+          studentName.includes(s) ||
+          studentEmail.includes(s) ||
+          seatNumber.includes(s) ||
+          zoneName.includes(s) ||
+          qr.includes(s) ||
+          b._id.toString().includes(s)
+        );
+      });
+    }
+
+    res.status(200).json(filtered);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch bookings", error: (error as Error).message });
+  }
+};
+

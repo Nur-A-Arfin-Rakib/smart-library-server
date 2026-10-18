@@ -4,6 +4,8 @@ import {
   returnBook,
   getDailySummary,
   markFinePaid,
+  listBorrows,
+  listBookings,
 } from "../controllers/librarianController";
 import { protect } from "../middleware/authMiddleware";
 import { authorize } from "../middleware/roleMiddleware";
@@ -12,6 +14,8 @@ const router = Router();
 
 router.use(protect, authorize("librarian", "admin"));
 
+router.get("/borrows", listBorrows);
+router.get("/bookings", listBookings);
 router.patch("/bookings/:id/manual-checkin", manualCheckIn);
 router.patch("/borrow/:recordId/return", returnBook);
 router.patch("/borrow/:recordId/mark-fine-paid", markFinePaid);

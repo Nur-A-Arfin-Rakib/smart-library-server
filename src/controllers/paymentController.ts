@@ -3,6 +3,7 @@ import { isValidObjectId } from "mongoose";
 import { stripe, isStripeConfigured } from "../utils/stripe";
 import BorrowRecord from "../models/BorrowRecord";
 import { AuthRequest } from "../middleware/authMiddleware";
+import { calculateFine } from "../utils/fine";
 
 // @route POST /api/payments/checkout-session/:recordId
 // Creates a Stripe Checkout session for a student to pay off a specific
@@ -30,10 +31,21 @@ export const createCheckoutSession = async (req: AuthRequest, res: Response): Pr
       res.status(404).json({ message: "Borrow record not found" });
       return;
     }
-    if (record.finePaid || record.fine <= 0) {
+
+    const outstandingFine =
+      record.status === "borrowed" || record.status === "overdue"
+        ? calculateFine(record.dueDate)
+        : record.fine;
+
+    if (record.finePaid || outstandingFine <= 0) {
       res.status(400).json({ message: "There's no outstanding fine on this record" });
       return;
     }
+
+    // Persist latest fine so Stripe session and webhooks use accurate amount
+    record.fine = outstandingFine;
+    record.finePaid = false;
+    await record.save();
 
     const clientUrl = process.env.CLIENT_URL || "http://localhost:3000";
     const bookTitle = (record.book as any)?.title || "borrowed book";

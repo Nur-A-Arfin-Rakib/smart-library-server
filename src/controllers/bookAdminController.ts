@@ -1,6 +1,9 @@
 import { Response } from "express";
 import Book from "../models/Book";
 import BorrowRecord from "../models/BorrowRecord";
+import Wishlist from "../models/Wishlist";
+import Reservation from "../models/Reservation";
+import Review from "../models/Review";
 import { AuthRequest } from "../middleware/authMiddleware";
 
 // @route POST /api/admin/books
@@ -91,6 +94,9 @@ export const deleteBook = async (req: AuthRequest, res: Response): Promise<void>
     }
 
     await Book.findByIdAndDelete(bookId);
+    await Wishlist.deleteMany({ book: bookId });
+    await Reservation.deleteMany({ book: bookId });
+    await Review.deleteMany({ book: bookId });
     res.status(200).json({ message: "Book deleted" });
   } catch (error) {
     res.status(500).json({ message: "Failed to delete book", error: (error as Error).message });
