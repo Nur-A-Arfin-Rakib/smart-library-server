@@ -83,7 +83,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
 
 // @route  POST /api/auth/logout
 export const logoutUser = (_req: Request, res: Response): void => {
-  res.clearCookie("token");
+  res.clearCookie("token", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: process.env.NODE_ENV === "production" ? "none" : "lax" });
   res.status(200).json({ message: "Logged out successfully" });
 };
 
